@@ -146,28 +146,30 @@ def alphabeta(self, game_state, depth, alpha, beta):
 
 \begin{table}[H]
     \centering
-    \begin{tabular}{llccc}
+    \resizebox{\linewidth}{!}{
+    \begin{tabular}{llcccc}
         \toprule
-        \textbf{黑方 (Black)} & \textbf{白方 (White)} & \textbf{黑方胜率} & \textbf{白方胜率} \\
+        \textbf{黑方 (Black)} & \textbf{白方 (White)} & \textbf{黑方胜率} & \textbf{白方胜率} & \textbf{黑平均耗时/步} & \textbf{白平均耗时/步} \\
         \midrule
-        MCTS Agent & Random Agent & 90\% & 10\% \\
-        Random Agent & MCTS Agent & 0\% & 100\% \\
+        MCTS Agent & Random Agent & 100\% & 0\% & 0.5366s & 0.0003s \\
+        Random Agent & MCTS Agent & 0\% & 100\% & 0.0002s & 0.8530s \\
         \midrule
-        Minimax Agent & Random Agent & 100\% & 0\% \\
-        Random Agent & Minimax Agent & 0\% & 100\% \\
+        Minimax Agent & Random Agent & 90\% & 10\% & 0.0298s & 0.0007s \\
+        Random Agent & Minimax Agent & 0\% & 100\% & 0.0007s & 0.0259s \\
         \midrule
-        MCTS Agent & Minimax Agent & 100\% & 0\% \\
-        Minimax Agent & MCTS Agent & 0\% & 100\% \\
+        MCTS Agent & Minimax Agent & 100\% & 0\% & 0.9740s & 0.0183s \\
+        Minimax Agent & MCTS Agent & 0\% & 100\% & 0.0131s & 0.5890s \\
         \bottomrule
     \end{tabular}
-    \caption{不同AI算法间的10局对战胜率统计}
+    }
+    \caption{不同AI算法间的10局对战胜率与平均耗时统计}
 \end{table}
 
 从上述具体数据可以看出：
 \begin{itemize}
-    \item MCTS Agent在100次模拟的配置下，能够以90\%的胜率击败Random Agent，显示了其基于统计搜索的强大能力。
-    \item Minimax Agent在深度为2的配置下，能够以100\%的胜率击败Random Agent，说明即使是浅层搜索配合合理评估函数也能在小盘上取得压倒性优势。
-    \item MCTS Agent在与Minimax Agent的对战中表现出绝对优势，100\%的胜率表明其更适合处理围棋这种高分支因子的复杂游戏。因为Minimax在深度受限的情况下无法充分评估后续局面，而MCTS通过大量模拟能够更好地捕捉到潜在的战术机会和陷阱。
+    \item MCTS Agent在100次模拟的配置下，能够以100\%的胜率击败Random Agent，且每步平均耗时在0.5$\sim$0.8s左右，显示了其基于统计搜索的强大能力。
+    \item Minimax Agent在深度为2的配置下，对战Random Agent同样能取得压倒性优势（仅偶尔输掉1局，胜率达90\%以上）。由于搜索树极浅且做了剪枝，其每步耗时极低（约0.01$\sim$0.03s）。
+    \item MCTS Agent在与Minimax Agent的对战中表现出绝对优势，100\%的胜率表明其更适合处理围棋这种高分支因子的复杂游戏。虽然MCTS每步平均耗时（约0.6$\sim$1.0s）略长于Minimax，但其通过大量模拟能够更好地捕捉潜在战术机会；而Minimax在受限深度下无法充分评估后续盘面。
 \end{itemize}
 
 \subsection{性能分析}
@@ -175,11 +177,11 @@ def alphabeta(self, game_state, depth, alpha, beta):
     \centering
     \begin{tabular}{lccc}
         \toprule
-        \textbf{算法类型} & \textbf{首步平均耗时} & \textbf{计算复杂度} & \textbf{表现稳定性} \\
+        \textbf{算法类型} & \textbf{平均耗时/步} & \textbf{计算复杂度} & \textbf{表现稳定性} \\
         \midrule
-        Random Agent & $< 0.01\text{s}$ & $O(1)$ & 差 \\
-        MCTS ($100$轮) & $0.3\sim0.6\text{s}$ & $O(\text{Rounds} \times \text{Depth})$ & 优 \\
-        Minimax (深度2) & $0.02\text{s}$ & $O(B^{\text{Depth}})$ & 中 \\
+        Random Agent & $< 0.001\text{s}$ & $O(1)$ & 差 \\
+        MCTS ($100$轮) & $0.5\sim1.0\text{s}$ & $O(\text{Rounds} \times \text{Depth})$ & 优 \\
+        Minimax (深度2) & $0.01\sim0.03\text{s}$ & $O(B^{\text{Depth}})$ & 中 \\
         \bottomrule
     \end{tabular}
     \caption{算法性能对比结果表}
@@ -191,7 +193,7 @@ def alphabeta(self, game_state, depth, alpha, beta):
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.8\textwidth]{2.png}
+    \includegraphics[width=\textwidth]{2.png}
     \caption{终端运行 benchmark.py 自动评测脚本胜率输出截图}
 \end{figure}
 
@@ -213,5 +215,19 @@ def alphabeta(self, game_state, depth, alpha, beta):
 
 \subsection{使用AI的感受}
 AI极大地提升了外围业务代码（如界面交互、测试框架）的编写效率，减轻了底层工具调用的负担，使我能够将核心精力集中在围棋搜索算法等主要逻辑的设计和理论验证上。
+
+\section{项目总结与心得}
+\subsection{项目总结}
+本项目成功实现并在 $5\times 5$ 的围棋盘面上验证了随机落子、蒙特卡洛树搜索（MCTS）及Minimax等多种经典围棋AI算法的性能。同时设计了一套功能完整的可视化人机交互界面与自动化对战测试脚本。
+
+整体代码已开源至：
+\texttt{https://github.com/Gotham-Zolio/Principles-of-AI}
+
+\subsection{个人心得}
+通过本次大作业，我进一步理解了经典博弈树算法与蒙特卡洛随机模拟的数学机制及代码实现细节。在实现MCTS时，面对庞大的状态空间，探索如何通过引入启发式估值以及合理的深度限制来打破性能瓶颈，让我切实感受到了算法优化的魅力。
+
+此外，在解决AI长期推演导致的GUI界面假死问题时，由于引入了多线程异步通信的解决思路，也极大地锻炼了我的并发编程与工程架构统筹能力。
+
+这次项目既有扎实的算法理论下钻，也有细致的工程落地挑战，使我受益匪浅。
 
 \end{document}
