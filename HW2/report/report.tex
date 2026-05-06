@@ -1,0 +1,320 @@
+\documentclass[12pt,a4paper]{ctexart}
+\usepackage{geometry}
+\geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
+\usepackage{amsmath}
+\usepackage{ctex}
+\usepackage{array}
+\usepackage{ulem}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{multirow}
+\usepackage{subfig}
+\usepackage{float}
+\usepackage{multicol}
+\usepackage{pgfplots}
+\usepackage{diagbox}
+\lstset{
+    language=Python,
+    basicstyle=\small\ttfamily,
+    keywordstyle=\color{blue},
+    commentstyle=\color{green!50!black},
+    stringstyle=\color{red},
+    breaklines=true,
+    frame=single,
+    showstringspaces=false
+}
+
+\title{\textbf{人工智能原理\\课程项目2\quad STL-10深度学习图像分类}}
+\author{苟左\,\, 自31\,\, 2023012274}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{问题背景与数据集介绍}
+
+本项目以STL-10图像分类数据集为基础，建立卷积神经网络(CNN)进行10分类任务。作业提供的数据共8000张96×96 RGB图像，每个类别800张，按7000张训练集(train)和1000张测试集(test)划分，类别包括飞机、鸟、汽车、猫、鹿、狗、马、猴子、船、卡车。训练过程中仅使用训练集划分出的验证集进行调参，最终测试集仅用于模型训练完成后的性能评估。主要目标为：
+\begin{enumerate}
+    \item 构建并训练基础卷积神经网络，在STL-10测试集上达到合理的分类精度。
+    \item 通过数据增强、网络结构改进、优化器与学习率策略等多角度优化实验，对比不同改进手段的效果。
+    \item 利用Grad-CAM可视化技术，解释模型的决策机制，增强AI可信度。
+\end{enumerate}
+
+\section{数据加载与预处理}
+
+\subsection{数据集组织}
+使用PyTorch的 \texttt{torchvision.datasets.ImageFolder} 加载STL-10数据集，自动将子文件夹名称映射为类别标签。训练集通过 \texttt{train\_test\_split}(分层抽样)按80/20比例划分为训练集和验证集，保证每个类别的分布一致。
+
+\subsection{数据预处理与增强}
+\begin{itemize}
+    \item \textbf{基础预处理：} Resize到96×96，转换为张量，使用ImageNet均值与方差进行归一化。
+    \item \textbf{数据增强：} 在"aug"预设中启用随机裁剪(RandomCrop, padding=4)、随机水平翻转(p=0.5)、颜色抖动(ColorJitter)等变换，增加训练数据的多样性并提升泛化能力。
+\end{itemize}
+
+\section{网络架构设计}
+
+\subsection{基础CNN架构}
+基础网络由多层卷积块(ConvBlock)和全局平均池化、全连接分类头组成。每个卷积块包含：
+\begin{itemize}
+    \item 卷积层(kernel=3, padding=1)
+    \item 可选的批归一化(BatchNorm)层
+    \item 激活函数(默认ReLU)
+    \item 最大池化或平均池化(kernel=2, stride=2)
+\end{itemize}
+
+基础配置包含4层卷积块，通道数分别为32、64、128、256。
+
+权重初始化采用He初始化(Kaiming Normal)用于卷积层，偏置项初始化为0；全连接层权重采用正态分布初始化，偏置初始化为0。
+
+\subsection{训练配置}
+\begin{table}[H]
+    \centering
+    \begin{tabular}{lc}
+        \toprule
+        \textbf{超参数} & \textbf{基础配置} \\
+        \midrule
+        学习率 & 0.01 \\
+        优化器 & SGD (momentum=0.9, weight\_decay=1e-4) \\
+        损失函数 & CrossEntropyLoss \\
+        批大小 & 64 \\
+        训练轮数 & 30 \\
+        验证集比例 & 20\% \\
+        \bottomrule
+    \end{tabular}
+    \caption{基础训练超参数配置}
+\end{table}
+\section{模型优化策略设计}
+
+本项目从三个角度对基础模型进行了改进实验：
+
+\subsection{改进实验配置}
+
+\begin{table}[H]
+    \centering
+    \small
+    \begin{tabular}{lccccccc}
+        \toprule
+        \textbf{预设} & \textbf{增强} & \textbf{激活} & \textbf{池化} & \textbf{BatchNorm} & \textbf{Dropout} & \textbf{优化器} & \textbf{学习率} \\
+        \midrule
+        baseline & 否 & ReLU & Max & 否 & 0.0 & SGD & 0.01 \\
+        aug & 否(待评估) & ReLU & Max & 否 & 0.0 & SGD & 0.01 \\
+        structure & 是 & LeakyReLU & Avg & 是 & 0.3 & SGD & 0.01 \\
+        optimizer & 是 & LeakyReLU & Avg & 是 & 0.3 & AdamW & 1e-3 \\
+        \bottomrule
+    \end{tabular}
+    \caption{四个实验预设的主要配置差异}
+\end{table}
+
+\subsection{改进方向}
+
+\begin{enumerate}
+    \item \textbf{数据增强 (Aug)：} 通过随机裁剪、翻转和颜色抖动，扩充训练数据的有效多样性，缓解过拟合。
+    
+    \item \textbf{结构改进 (Structure)：} 
+    \begin{itemize}
+        \item 将激活函数从ReLU切换为LeakyReLU，避免ReLU的"Dead Neuron"问题。
+        \item 将最大池化改为平均池化，保留更多细节信息。
+        \item 加入BatchNorm层加速收敛，提升训练稳定性。
+        \item 加入Dropout(p=0.3)进一步抑制过拟合。
+    \end{itemize}
+    
+    \item \textbf{优化器与学习率 (Optimizer)：}
+    \begin{itemize}
+        \item 替换为AdamW优化器，具有更好的自适应学习率调节能力。
+        \item 学习率从0.01降低到1e-3，配合CosineAnnealingLR学习率调度器实现更平滑的衰减。
+    \end{itemize}
+\end{enumerate}
+
+\subsection{实验结果}
+下面是基础模型在测试集各类别上的分类指标汇总：
+
+\begin{table}[H]
+    \centering
+    \begin{tabular}{lcccc}
+        \toprule
+        \textbf{类别} & \textbf{精度} & \textbf{召回率} & \textbf{F1分数} & \textbf{样本数} \\
+        \midrule
+        Airplane & 0.729 & 0.780 & 0.754 & 100 \\
+        Bird & 0.527 & 0.590 & 0.557 & 100 \\
+        Car & 0.673 & 0.760 & 0.714 & 100 \\
+        Cat & 0.694 & 0.250 & 0.368 & 100 \\
+        Deer & 0.467 & 0.640 & 0.540 & 100 \\
+        Dog & 0.424 & 0.390 & 0.406 & 100 \\
+        Horse & 0.610 & 0.640 & 0.624 & 100 \\
+        Monkey & 0.455 & 0.650 & 0.535 & 100 \\
+        Ship & 0.759 & 0.760 & 0.760 & 100 \\
+        Truck & 0.676 & 0.720 & 0.697 & 100 \\
+        \midrule
+        \textbf{宏平均} & \textbf{0.616} & \textbf{0.593} & \textbf{0.588} & \textbf{1000} \\
+        \bottomrule
+    \end{tabular}
+    \caption{Baseline模型各类别分类指标(精度\%, 测试集)}
+\end{table}
+
+下表为按照四个实验预设的性能对比：
+
+\begin{table}[H]
+    \centering
+    \small
+    \begin{tabular}{lrrrrrrlc}
+        \toprule
+        \textbf{配置} & \textbf{训练末精度} & \textbf{最佳验证精度} & \textbf{测试准确率} & \textbf{宏Precision} & \textbf{宏Recall} & \textbf{宏F1} & \textbf{收敛} & \textbf{过拟合} \\
+        \midrule
+        Baseline & 65.6\% & 59.9\% & 59.3\% & 61.6\% & 59.3\% & 58.8\% & 正常 & 轻微 \\
+        Aug & 59.6\% & 57.6\% & 56.4\% & 57.8\% & 56.4\% & 55.7\% & 正常 & 轻微 \\
+        Structure & 57.1\% & 58.8\% & 57.2\% & 59.1\% & 57.2\% & 57.2\% & 正常 & 轻微 \\
+        Optimizer & 66.6\% & 65.1\% & 64.6\% & 64.8\% & 64.6\% & 64.5\% & 较快 & 较小 \\
+        \bottomrule
+    \end{tabular}
+    \caption{各实验配置性能对比（宏指标为各类别指标的简单平均）}
+\end{table}
+
+\section{训练结果与可视化}
+
+\subsection{基础模型(Baseline)训练过程}
+在30轮训练后，基础模型在验证集上达到最优精度约59.86\%，测试集精度为59.3\%。训练曲线如下所示(见图1)：
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../outputs/baseline_20260504_213010/training_curves.png}
+    \caption{基础模型30轮训练的Loss与Accuracy曲线}
+\end{figure}
+
+从训练曲线可观察到：
+\begin{itemize}
+    \item 训练损失持续下降，训练精度从初始10.5\%上升至65.6\%。
+    \item 验证损失在第25轮左右达到最小值，之后略有上升，表明出现轻微的过拟合。
+    \item 验证精度最终稳定在59\%左右。
+\end{itemize}
+
+\subsection{混淆矩阵分析}
+测试集上的混淆矩阵如图2所示。从矩阵可看出：
+\begin{itemize}
+    \item 飞机(Airplane)、汽车(Car)等结构清晰的物体识别效果较好，召回率分别达78\%、76\%。
+    \item 猫(Cat)的识别效果较差，只有25\%的召回率，可能因为猫的毛发纹理与其他动物相近。
+    \item 狗(Dog)、猴子(Monkey)等动物类识别相对困难，精度在40\%\textasciitilde50\%之间。
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{../outputs/baseline_20260504_213010/confusion_matrix.png}
+    \caption{30轮baseline模型在测试集上的混淆矩阵}
+\end{figure}
+\subsection{Aug 预设 (数据增强)}
+对比实验中启用数据增强的 `aug` 预设在 30 轮训练后表现如下：训练集末尾精度约为 59.6\%，最佳验证精度约为 57.6\%，测试集精度为 56.4\%。总体收敛正常，较基线有所提升但仍存在少量过拟合。训练曲线见图：
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../outputs/aug_20260506_130943/training_curves.png}
+    \caption{`aug` 预设30轮训练曲线}
+\end{figure}
+
+从曲线走势看，`aug` 预设的训练损失下降更平滑，说明数据增强对优化过程有一定稳定作用；但验证损失后期仍有轻微回弹，说明增强主要改善了泛化边界，尚不足以完全消除过拟合。
+
+\subsection{Structure 预设 (结构改进)}
+`structure` 预设通过改变激活函数、池化与加入 BatchNorm/Dropout 获得了稳定提升：训练末精度约为 57.1\%，最佳验证精度约为 58.8\%，测试集精度为 57.2\%。结构改进使验证性能提升并改善了泛化性。训练曲线见图：
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../outputs/structure_20260506_133727/training_curves.png}
+    \caption{`structure` 预设30轮训练曲线}
+\end{figure}
+
+从趋势上看，`structure` 预设的验证损失在中后期出现了较明显的上下波动，说明结构改动虽然提升了表达能力，但也引入了更强的训练不稳定性；其中 BatchNorm 和 Dropout 带来的正则化效果在提升验证精度的同时，也让曲线不如 `aug` 那样平滑。
+
+\subsection{Optimizer 预设 (优化器与调度)}
+`optimizer` 预设（AdamW + 学习率调度）在本次实验中表现最好：训练末精度约为 66.6\%，最佳验证精度约为 65.1\%，测试集精度为 64.6\%。收敛速度更快且验证/测试性能明显优于其他预设，推荐作为最终模型的训练配置。训练曲线见图：
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../outputs/optimizer_20260506_152335/training_curves.png}
+    \caption{`optimizer` 预设30轮训练曲线}
+\end{figure}
+
+从曲线变化看，`optimizer` 预设整体上升最稳定、收敛最充分，但验证损失在若干轮次仍有短暂波动，尤其是在学习率较高或即将切换到更低学习率阶段时更明显；这说明 AdamW 虽然加快了优化，但验证集表现仍会受到学习率调度和数据噪声影响。
+
+\section{可解释性分析：Grad-CAM可视化}
+
+Grad-CAM(Gradient-weighted Class Activation Map)通过提取模型最后一层卷积层的特征图与梯度信息，生成类激活热力图，直观展示模型判决时关注的图像区域。
+
+\subsection{原理}
+对于分类任务，Grad-CAM计算指定类别 $c$ 相对于卷积层输出的梯度，并与激活特征图加权平均，得到热力图：
+
+$$L_c^{Grad-CAM} = \text{ReLU}\left(\sum_k \alpha_k^c A^k\right)$$
+
+其中 $\alpha_k^c = \frac{1}{Z}\sum_{i,j}\frac{\partial y^c}{\partial A_{ij}^k}$ 为第 $k$ 个特征通道的梯度权重，$A^k$ 为第 $k$ 个特征图。
+
+\subsection{可视化样例}
+从测试集中随机抽取图片进行Grad-CAM可视化，这里展示部分样例：
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1.0\textwidth]{../outputs/gradcam/baseline_fixed/gradcam_00.png}
+    \caption{马识别的Grad-CAM可视化}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1.0\textwidth]{../outputs/gradcam/baseline_fixed/gradcam_02.png}
+    \caption{飞机识别的Grad-CAM可视化}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1.0\textwidth]{../outputs/gradcam/baseline_fixed/gradcam_04.png}
+    \caption{汽车识别的Grad-CAM可视化}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1.0\textwidth]{../outputs/gradcam/baseline_fixed/gradcam_07.png}
+    \caption{鸟识别的Grad-CAM可视化}
+\end{figure}
+
+\subsection{分析}
+根据Grad-CAM可视化可观察到：
+\begin{enumerate}
+    \item 对于清晰的单物体图像(如汽车、鸟类)，模型能够较为精准定位目标物体的关键区域，热力集中度高。
+    \item 在多物体或复杂背景场景中(如上面展示的飞机)，模型有可能会被干扰物分散注意力，导致错误分类。
+    \item Grad-CAM有效地增强了模型决策的可信度与可解释性，使人类能够理解CNN的决策依据。
+\end{enumerate}
+
+\section{AI辅助编程使用说明}
+
+\subsection{使用的工具及场景}
+本课程项目主要利用 \textbf{Claude Haiku 4.5} 进行辅助编程，涉及以下场景：
+
+\begin{itemize}    
+    \item \textbf{训练循环与评估：} AI生成了 \texttt{train\_one\_epoch}、\texttt{evaluate}、\texttt{predict\_all} 等标准训练函数。
+    
+    \item \textbf{Grad-CAM实现：} AI协助实现了完整的GradCAM类，包括前向钩子、反向钩子、CAM计算与可视化逻辑。
+    
+    \item \textbf{绘图及可视化：} AI帮助编写了训练曲线、混淆矩阵等可视化代码。
+\end{itemize}
+
+\subsection{使用AI的心得与体会}
+AI极大地加速了项目的开发进度，避免了大量重复代码的手工编写，且代码结构更规范。但在超参数选择、模型架构创新等高层设计上仍需人工判断与试错。
+
+\section{项目总结与心得}
+
+\subsection{项目成果}
+\begin{enumerate}
+    \item 成功构建了完整的PyTorch图像分类框架，包括模型定义、数据加载、训练评估、可视化等全流程。
+    
+    \item 基础CNN模型在STL-10测试集上达到59.3\%精度，与从零开始的浅层网络相比已显著改善。
+    
+    \item 设计了四组对比实验，覆盖数据增强、网络结构、优化策略等多个改进维度，为进一步优化奠定基础。
+    
+    \item 通过Grad-CAM可视化技术，成功揭示了CNN的决策机制，增强了模型的可解释性与可信度。
+    
+    \item 代码已开源至GitHub：\texttt{https://github.com/Gotham-Zolio/Principles-of-AI}
+\end{enumerate}
+
+\subsection{个人收获与反思}
+\begin{enumerate}
+    \item 通过实现CNN训练全流程，深化了对卷积、池化、批归一化等基础组件的理解。
+    
+    \item 学会了通过有控制地改变单一变量(如激活函数、池化方式)进行对比实验，系统地评估每种改进的实际效果。
+    
+    \item Grad-CAM等可视化技术令我认识到可解释性是使AI系统获得信任的关键。
+\end{enumerate}
+\end{document}

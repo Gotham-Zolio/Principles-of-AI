@@ -62,3 +62,70 @@ HW1/
 ├── play.py             # CLI automated match entry point
 └── README.md           # Instructions for HW1 subsystem
 ```
+
+## HW2: STL-10 Image Classification
+
+This project builds a CNN-based image classification pipeline on the STL-10 dataset. It includes model training, evaluation, optimization experiments, and Grad-CAM visualization for interpretability.
+
+### 🌟 Core Features
+* **CNN Classifier**: A custom convolutional neural network with multiple convolution blocks, pooling, and a classification head.
+* **Training & Evaluation**: Full training pipeline with validation split, loss/accuracy curves, classification report, and confusion matrix.
+* **Optimization Experiments**: Supports experiments on data augmentation, model structure, and optimizer / learning-rate strategy.
+* **Grad-CAM Visualization**: Generates heatmaps to inspect which image regions influence predictions.
+
+### 🚀 Quick Start
+
+First, navigate to the `HW2` directory:
+```bash
+cd HW2
+```
+
+#### 1. Train a Model
+Run the training script with one of the supported presets:
+```bash
+python train.py --data_root HW2/STL10 --preset baseline --epochs 30 --batch_size 64 --seed 42
+python train.py --data_root HW2/STL10 --preset aug --epochs 30 --batch_size 64 --seed 42
+python train.py --data_root HW2/STL10 --preset structure --epochs 30 --batch_size 64 --seed 42
+python train.py --data_root HW2/STL10 --preset optimizer --epochs 30 --batch_size 64 --seed 42
+```
+
+#### 2. Run the Experiment Script
+If you want to launch multiple presets in sequence, use the batch runner:
+```bash
+python scripts/run_experiments.py --epochs 30 --batch_size 64
+```
+
+#### 3. Generate Grad-CAM Visualizations
+Use a trained checkpoint to produce heatmaps:
+```bash
+python explain.py --checkpoint HW2/outputs/<run_folder>/best_model.pth --num_images 8 --output_dir HW2/outputs/gradcam/<run_folder>
+```
+
+### 📁 Directory Structure
+```text
+HW2/
+├── config.py            # Hyperparameter and preset configuration
+├── evaluate.py          # Evaluation helpers and metrics
+├── explain.py           # Grad-CAM visualization script
+├── train.py             # Main training entry point
+├── requirements.txt     # Python dependencies
+├── models/
+│   ├── __init__.py
+│   └── cnn.py           # CNN model definition
+├── scripts/
+│   └── run_experiments.py
+├── utils/
+│   ├── __init__.py
+│   ├── data.py          # Data loading and preprocessing
+│   ├── engine.py        # Training / evaluation loops
+│   ├── plotting.py      # Curve and matrix plotting helpers
+│   └── seed.py          # Reproducibility helpers
+├── report/              # LaTeX report source files
+├── outputs/             # Generated experiment outputs
+└── STL10/               # STL-10 dataset
+```
+
+### Notes
+* Keep `outputs/` for generated results only; it does not need to be included when submitting source code.
+* The report is stored separately under `HW2/report/`.
+* If you want to reproduce the exact results in the report, use the same random seed and dataset split.
