@@ -129,3 +129,41 @@ HW2/
 * Keep `outputs/` for generated results only; it does not need to be included when submitting source code.
 * The report is stored separately under `HW2/report/`.
 * If you want to reproduce the exact results in the report, use the same random seed and dataset split.
+
+## HW3: Pac-Man Reinforcement Learning
+
+This assignment implements reinforcement-learning experiments on a small Pac-Man grid (5×5). It includes dynamic programming (value iteration), First-Visit Monte Carlo control, training scripts, and a GUI for real-time visualization.
+
+### 🌟 Core Features
+* **Value Iteration (DP)**: Compute optimal state values and extract greedy policies.
+* **Monte Carlo Control (MC)**: First-visit MC policy control with learning curves and checkpoints.
+* **GUI & Visualization**: Interactive GUI for live demonstrations and scripts that export learning curves and policy visualizations.
+
+### 🚀 Quick Start
+Navigate to the `HW3` code folder and run one of the modes:
+
+```bash
+cd HW3/codes
+python Pac-Man.py --mode dp                # run value-iteration and show policy/value plot
+python Pac-Man.py --mode mc --episodes 3000  # run Monte-Carlo training and save learning curves
+python Pac-Man.py --mode learn --live-episodes 1000  # train with live GUI visualization
+```
+
+### 📁 Directory Structure (relevant)
+```text
+HW3/
+├── codes/
+│   ├── Pac-Man.py         # main implementation (GUI + training/visualization)
+│   ├── Pac-Man.slim.py    # lightweight, non-GUI version for automated evaluation
+│   └── ...                # generated visualizations (png, mp4, gif)
+└── report/
+	└── report.tex         # LaTeX report source
+```
+
+### Dependencies
+* Python 3.8+
+* numpy, matplotlib, pillow (PIL)
+
+Outputs (examples): `dp_policy.png`, `mc_policy.png`, `learning_curves.png`, `Pac-Man-learning.mp4`.
+
+If you'd like I can also merge more detailed English documentation from `HW3/README.md` into this top-level README, or make the Pac-Man scripts easier to run on other platforms. Reply with your preference.

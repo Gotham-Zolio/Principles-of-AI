@@ -72,3 +72,19 @@ HW2/report/*.out
 HW2/report/*.fls
 HW2/report/*.fdb_latexmk
 HW2/report/*.pdf
+
+# ==================== HW3 Artifacts ====================
+HW3/outputs/
+HW3/*.mp4
+HW3/benchmark_results/
+HW3/**/*.pth
+HW3/**/*.pt
+HW3/**/*.ckpt
+HW3/report/*.aux
+HW3/report/*.log
+HW3/report/*.synctex.gz
+HW3/report/*.toc
+HW3/report/*.out
+HW3/report/*.fls
+HW3/report/*.fdb_latexmk
+HW3/report/*.pdf

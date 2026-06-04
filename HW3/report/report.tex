@@ -1,0 +1,394 @@
+\documentclass[12pt,a4paper]{ctexart}
+\usepackage{geometry}
+\geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{ctex}
+\usepackage{array}
+\usepackage{ulem}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{multirow}
+\usepackage{subfig}
+\usepackage{float}
+\usepackage{multicol}
+\usepackage{pgfplots}
+\usepackage{diagbox}
+\usepackage{algorithm}
+\usepackage{algorithmicx}
+\usepackage{algpseudocode}
+\pgfplotsset{compat=1.18}
+
+\lstset{
+    language=Python,
+    basicstyle=\small\ttfamily,
+    keywordstyle=\color{blue},
+    commentstyle=\color{green!50!black},
+    stringstyle=\color{red},
+    breaklines=true,
+    frame=single,
+    showstringspaces=false,
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    numbersep=5pt
+}
+
+\title{\textbf{人工智能原理\\课程项目3\quad 吃豆人强化学习}}
+\author{苟左\,\, 自31\,\, 2023012274}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+% ================================================================
+\section{问题建模}
+% ================================================================
+
+\subsection{游戏描述}
+
+本项目在 $5\times 5$ 的网格地图上实现吃豆人强化学习，如图~\ref{fig:map} 所示。游戏规则如下：
+\begin{itemize}
+    \item \textbf{起点}：$(0,0)$（左上角）；\textbf{终点}：$(4,4)$（右下角）。
+    \item 地图中共有 \textbf{2 颗豆子}，分布在 $(0,2)$ 和 $(2,3)$。
+    \item 地图中共有 \textbf{3 个静止幽灵}，分布在 $(1,2)$、$(2,1)$、$(3,3)$。
+    \item 吃豆人每回合选择一个动作（上/下/左/右），碰到边界则原地不动。
+    \item 目标：在不被幽灵捕获的前提下，收集所有豆子后到达终点。
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    % 如需插入地图截图，请将图片放置在 report/ 目录下并取消注释：
+    % \includegraphics[width=0.4\textwidth]{map.png}
+    \fbox{\parbox{0.55\textwidth}{\centering\small
+    \begin{tabular}{|c|c|c|c|c|}
+    \hline
+    \textbf{S} &   & \textbf{B} &   &   \\ \hline
+      & & \textbf{G} &   &   \\ \hline
+      & \textbf{G} &   & \textbf{B} &   \\ \hline
+      &   &   & \textbf{G} &   \\ \hline
+      &   &   &   & \textbf{E} \\ \hline
+    \end{tabular}\\[4pt]
+    S=起点\quad B=豆子\quad G=幽灵\quad E=终点}}
+    \caption{$5\times 5$ 吃豆人地图示意（行列下标从 0 开始）}
+    \label{fig:map}
+\end{figure}
+
+\subsection{状态空间}
+
+由于豆子被吃的情况会影响吃豆人的最优路径，单纯的格坐标不足以描述完整的环境状态。
+本项目将状态定义为三元组 $(r,\,c,\,b)$：
+\begin{itemize}
+    \item $r \in \{0,1,2,3,4\}$：吃豆人当前所在行；
+    \item $c \in \{0,1,2,3,4\}$：吃豆人当前所在列；
+    \item $b \in \{0,1,2,3\}$：\textbf{豆子掩码}（beans\_mask），2 位二进制数，第 $i$ 位为 1 表示第 $i$ 颗豆已被吃。
+\end{itemize}
+
+因此，状态总数为 $5 \times 5 \times 4 = \mathbf{100}$。为便于数组索引，将三元组编码为整数：
+\begin{equation}
+    \text{sid} = (r \times 5 + c) \times 4 + b, \quad \text{sid} \in [0, 99]
+\end{equation}
+
+起始状态为 $\text{encode}(0,0,0) = 0$，成功终止状态为 $\text{encode}(4,4,3) = 99$。
+
+幽灵格与终点格均定义为\textbf{吸收态}（absorbing state）：智能体进入后回合立即结束，后续无任何回报，故 $V(\text{terminal}) = 0$。
+
+\subsection{动作空间}
+
+动作集合共 4 个离散动作：
+
+\begin{table}[H]
+    \centering
+    \begin{tabular}{ccccc}
+        \toprule
+        编号 & 0 & 1 & 2 & 3 \\
+        \midrule
+        方向 & 上 $(\Delta r=-1)$ & 下 $(\Delta r=+1)$ & 左 $(\Delta c=-1)$ & 右 $(\Delta c=+1)$ \\
+        \bottomrule
+    \end{tabular}
+    \caption{动作编码与对应方向}
+\end{table}
+
+\subsection{转移函数}
+
+转移函数是\textbf{确定性}的：给定状态 $(r,c,b)$ 和动作 $a$，下一状态 $(r',c',b')$ 唯一确定。
+转移逻辑（\texttt{step\_logic} 函数）按如下优先级处理：
+
+\begin{enumerate}
+    \item \textbf{越界检测}：若 $(r',c')$ 超出地图边界，则原地不动 $(r',c') = (r,c)$，并给予碰壁惩罚，回合\textbf{不}结束。
+    \item \textbf{豆子收集}：若 $(r',c')$ 与某颗未吃豆子重合，则更新掩码 $b' = b \mid (1 \ll i)$，并给予吃豆奖励。
+    \item \textbf{幽灵碰撞}：若 $(r',c')$ 为幽灵格，则给予幽灵惩罚，回合\textbf{结束}（done=True）。
+    \item \textbf{到达终点}：若 $(r',c') = (4,4)$，则根据豆子是否全部吃完给予对应奖惩，回合\textbf{结束}。
+    \item \textbf{普通移动}：不满足上述条件，给予基础步骤代价，回合继续。
+\end{enumerate}
+
+\subsection{奖励函数}
+
+\begin{table}[H]
+    \centering
+    \begin{tabular}{llr}
+        \toprule
+        \textbf{事件} & \textbf{描述} & \textbf{奖励值} \\
+        \midrule
+        普通移动 & 每步基础代价（鼓励尽快到达） & $-1$ \\
+        碰壁     & 动作目标越出地图边界           & $-10$ \\
+        碰幽灵   & 到达幽灵格，回合结束           & $-100$ \\
+        吃豆     & 经过尚未吃过的豆子格           & $+10$ \\
+        到终点（全部吃完）& 收集所有豆子后到达 $(4,4)$     & $+100$ \\
+        到终点（未全部吃完）& 未吃完豆子直接到达 $(4,4)$   & $-50$ \\
+        \bottomrule
+    \end{tabular}
+    \caption{奖励函数设计（折扣因子 $\gamma = 0.99$）}
+\end{table}
+
+奖励设计的直觉：$-50$ 的终点惩罚使智能体在计划路径时必须权衡"绕路吃豆"与"节省步数"的得失；$-100$ 的幽灵惩罚则迫使智能体主动绕开危险格，而非以碰幽灵换取短路。
+
+% ================================================================
+\section{有模型强化学习——值迭代（动态规划）}
+% ================================================================
+
+\subsection{算法原理}
+
+值迭代（Value Iteration）基于贝尔曼最优方程对最优状态值函数 $V^*$ 进行迭代逼近：
+
+\begin{equation}
+    V^{(k+1)}(s) = \max_{a} \left[ R(s,a) + \gamma \cdot V^{(k)}(s') \right]
+\end{equation}
+
+对于确定性 MDP，$s' = T(s,a)$ 唯一确定；对吸收态（幽灵格/终点格），$V(\text{terminal}) = 0$。
+
+算法停止条件为：相邻两次迭代的最大值变化 $\delta = \max_s |V^{(k+1)}(s) - V^{(k)}(s)| < \theta$（本实验取 $\theta = 10^{-6}$）。收敛后，最优策略由贪心提取：
+
+\begin{equation}
+    \pi^*(s) = \arg\max_{a} \left[ R(s,a) + \gamma \cdot V^*(s') \right]
+\end{equation}
+
+% \subsection{关键代码}
+
+% \begin{lstlisting}[language=Python, caption=值迭代核心实现]
+% def value_iteration(gamma=0.99, theta=1e-6, max_iter=10000):
+%     V      = np.zeros(N_STATES)   # 初始化值函数
+%     policy = np.zeros(N_STATES, dtype=int)
+
+%     for itr in range(max_iter):
+%         delta = 0.0
+%         for s in range(N_STATES):
+%             r, c, b = decode(s)
+%             if is_terminal(r, c):
+%                 continue           # 吸收态 V 固定为 0
+
+%             qs = np.empty(N_ACTIONS)
+%             for a in range(N_ACTIONS):
+%                 nr, nc, nb, reward, done = step_logic(r, c, b, a)
+%                 ns = encode(nr, nc, nb)
+%                 qs[a] = reward + gamma * (0.0 if done else V[ns])
+
+%             best      = float(qs.max())
+%             delta     = max(delta, abs(best - V[s]))
+%             V[s]      = best
+%             policy[s] = int(qs.argmax())
+
+%         if delta < theta:
+%             print(f"[值迭代] 第 {itr+1} 轮收敛，delta={delta:.2e}")
+%             break
+
+%     return V, policy
+% \end{lstlisting}
+
+\subsection{实验结果}
+
+值迭代在 \textbf{第 9 轮}即收敛（$\delta < 10^{-6}$），充分体现了有模型 DP 方法对于小规模确定性 MDP 的高效性。
+
+\subsubsection{最优策略轨迹}
+
+按最优策略模拟执行，得到最优路径如下（共 \textbf{8 步}，总回报 = $\mathbf{112}$）：
+
+\begin{center}
+\small
+\begin{tabular}{cll}
+    \toprule
+    步骤 & 格坐标 & 说明 \\
+    \midrule
+    0 & $(0,0)$ & 起点，豆子掩码=00 \\
+    1 & $(0,1)$ & 向右 \\
+    2 & $(0,2)$ & 向右，\textbf{吃豆1}（掩码=01，$+10$） \\
+    3 & $(0,3)$ & 向右（绕开 $(1,2)$ 幽灵） \\
+    4 & $(1,3)$ & 向下 \\
+    5 & $(2,3)$ & 向下，\textbf{吃豆2}（掩码=11，$+10$） \\
+    6 & $(2,4)$ & 向右 \\
+    7 & $(3,4)$ & 向下（绕开 $(3,3)$ 幽灵） \\
+    8 & $(4,4)$ & 向下，\textbf{到达终点}（$+100$） \\
+    \bottomrule
+\end{tabular}
+\end{center}
+
+总回报验证：$8 \times (-1) + 2 \times 10 + 100 = 112$。该路径同时满足：收集所有豆子；绕开所有幽灵；路径长度为可行最短（曼哈顿最短距离下界为 8 步）。
+
+\subsubsection{策略可视化}
+
+图~\ref{fig:dp_policy} 展示了值迭代所得最优策略在 4 种 beans\_mask （左上：豆子均未吃；右上：豆1已吃；左下：豆2已吃；右下：豆子全部吃完）下的箭头图，背景颜色为 $V^*$ 的热图（绿色=高价值，红色=低价值）。从图中可以直观地看到：幽灵格附近的价值显著偏低，智能体倾向于绕开这些区域。
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.58\textwidth]{../codes/dp_policy.png}
+    \caption{值迭代最优策略箭头图（含 $V^*$ 热图背景）}
+    \label{fig:dp_policy}
+\end{figure}
+
+% ================================================================
+\section{无模型强化学习——蒙特卡洛控制}
+% ================================================================
+
+\subsection{算法原理}
+
+蒙特卡洛（Monte Carlo）控制不依赖环境模型，而是通过与环境的\textbf{交互采样}估计动作值函数 $Q(s,a)$，进而导出策略。本实验采用 \textbf{First-Visit MC 控制}结合 $\varepsilon$-greedy 探索策略。
+
+\paragraph{First-Visit MC 更新}
+对一条回合轨迹 $(s_0, a_0, r_1, s_1, \ldots, s_T)$，逆序计算折扣回报：
+\begin{equation}
+    G_t = r_{t+1} + \gamma r_{t+2} + \cdots + \gamma^{T-t-1} r_T = r_{t+1} + \gamma G_{t+1}
+\end{equation}
+对每个首次出现的 $(s, a)$ 对，用增量均值更新：
+\begin{equation}
+    Q(s,a) \leftarrow Q(s,a) + \frac{1}{N(s,a)}\left[G - Q(s,a)\right]
+\end{equation}
+其中 $N(s,a)$ 为 $(s,a)$ 的累计访问次数。
+
+\paragraph{$\varepsilon$-greedy 探索}
+为平衡探索与利用，$\varepsilon$ 按指数规律随回合数衰减：
+\begin{equation}
+    \varepsilon_k = \max\left(\varepsilon_{\min},\ \varepsilon_0 \cdot e^{-5 k / K}\right)
+\end{equation}
+其中 $\varepsilon_0 = 1.0$，$\varepsilon_{\min} = 0.02$，$K$ 为总回合数。这确保训练初期充分探索，后期逐渐收敛至贪心策略。
+
+% \subsection{关键代码}
+
+% \begin{lstlisting}[language=Python, caption=蒙特卡洛控制核心实现（节选）]
+% def monte_carlo_control(n_episodes=3000, gamma=0.99, ...):
+%     Q   = np.zeros((N_STATES, N_ACTIONS))
+%     Cnt = np.zeros((N_STATES, N_ACTIONS), dtype=np.int32)
+
+%     for ep in range(n_episodes):
+%         # epsilon 指数衰减
+%         epsilon = max(epsilon_min,
+%                       epsilon_start * np.exp(-5.0 * ep / n_episodes))
+%         state = env.reset()
+%         traj  = []
+
+%         for _ in range(max_steps):
+%             # epsilon-greedy 动作选择
+%             if np.random.random() < epsilon:
+%                 action = np.random.randint(N_ACTIONS)
+%             else:
+%                 action = int(Q[state].argmax())
+%             next_s, reward, done = env.step(action)
+%             traj.append((state, action, reward))
+%             state = next_s
+%             if done: break
+
+%         # First-Visit MC 更新（逆序）
+%         G, visited = 0.0, set()
+%         for s, a, r in reversed(traj):
+%             G = r + gamma * G
+%             if (s, a) not in visited:
+%                 visited.add((s, a))
+%                 Cnt[s, a] += 1
+%                 Q[s, a]   += (G - Q[s, a]) / Cnt[s, a]
+% \end{lstlisting}
+
+\subsection{实验结果}
+
+\subsubsection{策略质量}
+
+以 3000 回合训练（$\gamma = 0.99$）后，蒙特卡洛方法同样找到了最优 \textbf{8 步路径}，轨迹与值迭代结果完全一致，总回报 = $112$。后 500 回合的平均回报约为 \textbf{104}（接近最优的 $112$），说明策略已高度收敛，偶尔的差距来自 $\varepsilon$-greedy 中残余的随机探索。
+
+\subsubsection{学习曲线}
+
+图~\ref{fig:learning_curves} 展示了训练过程中每回合的总回报与步数变化（附 50 回合滑动均值）。
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.75\textwidth]{../codes/learning_curves.png}
+    \caption{蒙特卡洛学习曲线。上图：每回合总回报及滑动均值；下图：每回合步数（路径长度）及滑动均值。}
+    \label{fig:learning_curves}
+\end{figure}
+
+从曲线可以观察到以下趋势：
+\begin{itemize}
+    \item \textbf{初期（0--500 回合）：} $\varepsilon$ 较大，智能体大量随机探索，频繁碰幽灵，总回报极低（$-100$ 附近），步数受 500 步上限截断。
+    \item \textbf{中期（500--1500 回合）：} 随 $Q$ 值逐渐学习，策略开始向较优方向收敛，回报持续升高，步数显著缩短。
+    \item \textbf{后期（1500--3000 回合）：} 滑动均值趋于稳定，多数回合能在 8--12 步内到达终点并吃完所有豆子，平均回报稳定在 100 附近。
+\end{itemize}
+
+\subsubsection{策略演化动画}
+
+图~\ref{fig:mc_policy} 展示了 MC 训练结束后的最终策略箭头图。此外，训练过程制作为策略演化动画 \texttt{Pac-Man-learning.mp4}，可直观展示从随机策略到最优策略的演化过程。
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.63\textwidth]{../codes/mc_policy.png}
+    \caption{蒙特卡洛最终策略箭头图（3000 回合训练后）。}
+    \label{fig:mc_policy}
+\end{figure}
+
+% ================================================================
+\section{DP 与 MC 的比较分析}
+% ================================================================
+
+\begin{table}[H]
+    \centering
+    \begin{tabular}{lcc}
+        \toprule
+        \textbf{对比维度} & \textbf{值迭代（DP）} & \textbf{蒙特卡洛（MC）} \\
+        \midrule
+        是否需要环境模型 & \textbf{是}（需要转移函数 $T$） & \textbf{否}（仅需交互采样） \\
+        收敛速度       & 极快（\textbf{9 轮}迭代） & 较慢（需数千回合） \\
+        最终策略质量    & 全局最优（精确求解）       & 接近最优（近似求解） \\
+        适用场景       & 状态空间小、模型已知      & 模型未知、可交互采样 \\
+        计算复杂度      & $O(\text{迭代次数} \times |S| \times |A|)$ & $O(\text{回合数} \times \text{平均长度})$ \\
+        \bottomrule
+    \end{tabular}
+    \caption{有模型 DP（值迭代）与无模型 MC 控制的对比}
+\end{table}
+
+本实验中，DP 方法仅需 9 次全量扫描即达到精确最优解，而 MC 方法需要约 1500 回合才能使策略基本稳定。但对于\textbf{转移模型未知}的现实问题（如机器人运动控制、游戏 AI），MC 等无模型方法是唯一可行的选择。两种方法在本实验中最终均找到了相同的 8 步最优路径，验证了实现的正确性。
+
+% ================================================================
+\section{AI 辅助编程使用说明}
+% ================================================================
+
+\subsection{使用的工具及场景}
+本项目使用 \textbf{GitHub Copilot（Claude Sonnet 4.6）} 进行辅助编程，涉及场景：
+\begin{itemize}
+    \item \textbf{状态空间设计与验证：} AI 协助设计了 $(r, c, b)$ 三元组状态编码方案，并通过手工验证最优路径（8 步）反向确认奖励函数的合理性。
+    \item \textbf{可视化脚本：} AI 帮助编写了策略箭头图、学习曲线、策略演化动画等可视化代码。
+    \item \textbf{报告撰写：} AI 协助整理数据、生成了实验结果表格，并提供了初步分析框架。
+\end{itemize}
+
+\subsection{使用 AI 的感受}
+AI 在结构化的代码分析和可视化方面表现出色，但在奖励函数数值的权衡（如 $-50$ vs $-100$）和学习曲线的分析等问题上，仍需人工进行推演与判断。
+
+% ================================================================
+\section{项目总结与心得}
+% ================================================================
+
+\subsection{项目成果}
+\begin{enumerate}
+    \item 完成了吃豆人 MDP 建模：100 个状态的精确编码、转移函数、多维度奖励设计。
+    \item 实现了\textbf{值迭代}算法，第 9 轮收敛，精确求解出最优 8 步路径（总回报 = 112）。
+    \item 实现了 \textbf{First-Visit 蒙特卡洛控制}，3000 回合训练后同样找到最优策略。
+    \item 完成了 \texttt{Map} 类的 tkinter GUI 实现（TODO 1--3），可在窗口中实时演示最优策略。
+    \item 代码已开源至：\texttt{https://github.com/Gotham-Zolio/Principles-of-AI}
+\end{enumerate}
+
+\subsection{个人心得}
+通过本次项目，我对强化学习的核心概念有了更直观的理解：
+
+\begin{itemize}
+    \item \textbf{状态表示的重要性：} 仅用格坐标作为状态会导致同一格在不同豆子情况下被混淆处理，加入 beans\_mask 后状态空间虽扩大 4 倍，却使问题变得 Markov 可解。
+    \item \textbf{有模型与无模型的差异：} 值迭代建立在"已知转移函数"的基础上；而蒙特卡洛通过大量回合采样逐步逼近同一结果，为"黑盒"环境中的无模型学习提供了方案。
+    \item \textbf{探索与利用的权衡：} $\varepsilon$ 的衰减策略对 MC 训练的收敛速度有显著影响。初期若 $\varepsilon$ 衰减过快，智能体可能过早陷入局部最优（如只吃一颗豆子就冲向终点）；而衰减过慢则浪费大量回合在无效随机探索上。
+\end{itemize}
+
+\end{document}
